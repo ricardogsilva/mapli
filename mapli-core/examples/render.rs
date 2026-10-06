@@ -11,7 +11,10 @@ use mapli_core::{Camera, ImageSpec, PoolConfig, RenderPool, StaticRequest, Style
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pool = RenderPool::new(PoolConfig::default())?;
-    pool.register_style("demo", Style::Url("https://demotiles.maplibre.org/style.json".parse()?));
+    pool.register_style(
+        "demo",
+        Style::Url("https://demotiles.maplibre.org/style.json".parse()?),
+    );
 
     let req = StaticRequest {
         style: "demo".into(),

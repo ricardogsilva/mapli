@@ -6,9 +6,7 @@ class StyleLoadError(MapliError): ...
 class RenderError(MapliError): ...
 
 class RenderPool:
-
     def __init__(self, workers: int = 1, max_renderers_per_worker: int = 8) -> None: ...
-
     def register_style(
         self,
         style_id: str,
@@ -17,9 +15,7 @@ class RenderPool:
         path: str | PathLike[str] | None = None,
         json: str | None = None,
     ) -> None: ...
-
     def has_style(self, style_id: str) -> bool: ...
-
     def render(
         self,
         style_id: str,

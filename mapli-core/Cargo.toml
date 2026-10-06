@@ -7,6 +7,6 @@ edition = "2024"
 crossbeam-channel = "0.5.17"
 image = "0.25"
 maplibre_native = { version = "0.10.0", features = ["opengl"] }
-oneshot = "0.2.1"
+oneshot = { version = "0.2.1", features = ["std", "async"] }
 thiserror = "2.0.21"
 url = "2.5.8"

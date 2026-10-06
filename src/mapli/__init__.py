@@ -46,6 +46,7 @@ __all__ = [
     "UnknownStyleError",
 ]
 
+
 class RenderPool(_core.RenderPool):
     """A pool of renderers for MapLibre styles.
 
@@ -54,20 +55,18 @@ class RenderPool(_core.RenderPool):
     """
 
     def register_style(
-            self,
-            style_id: str,
-            *,
-            url: str | None = None,
-            path: str | PathLike[str] | None = None,
-            json: str | dict[str, Any] | None = None,
+        self,
+        style_id: str,
+        *,
+        url: str | None = None,
+        path: str | PathLike[str] | None = None,
+        json: str | dict[str, Any] | None = None,
     ) -> None:
         if isinstance(json, dict):
             json_str = _json.dumps(json)
-            super().register_style(
-                style_id, url=url, path=path, json=json_str)
+            super().register_style(style_id, url=url, path=path, json=json_str)
         else:
-            super().register_style(
-                style_id, url=url, path=path, json=json)
+            super().register_style(style_id, url=url, path=path, json=json)
 
     async def arender(self, style_id: str, **kwargs: Any) -> bytes:
         """Asynchronously render a MapLibre style to an image.

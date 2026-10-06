@@ -11,9 +11,8 @@ use thiserror::Error;
 
 use crate::types::StyleId;
 
-#[derive( Debug, Error)]
+#[derive(Debug, Error)]
 pub enum MapliError {
-
     /// Caller supplied an out of range or malformed value.
     #[error("invalid input: {0}")]
     InvalidInput(String),

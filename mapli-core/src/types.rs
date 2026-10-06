@@ -76,31 +76,37 @@ pub struct Camera {
 }
 
 impl Camera {
-    pub fn new(lon: f64, lat:f64, zoom: f64) -> Result<Self> {
+    pub fn new(lon: f64, lat: f64, zoom: f64) -> Result<Self> {
         if !(-180.0..=180.0).contains(&lon) {
-            return Err(
-                MapliError::InvalidInput(format!("lon {lon} not in valid range of [-180, 180]"))
-            );
+            return Err(MapliError::InvalidInput(format!(
+                "lon {lon} not in valid range of [-180, 180]"
+            )));
         }
         if !(-MAX_LAT..=MAX_LAT).contains(&lat) {
-            return Err(
-                MapliError::InvalidInput(format!("lat {lat} not in valid range of [-{MAX_LAT}, {MAX_LAT}]"))
-            );
+            return Err(MapliError::InvalidInput(format!(
+                "lat {lat} not in valid range of [-{MAX_LAT}, {MAX_LAT}]"
+            )));
         }
         if !(0.0..=MAX_ZOOM).contains(&zoom) {
-            return Err(
-                MapliError::InvalidInput(format!("zoom {zoom} not in valid range of [0, {MAX_ZOOM}]"))
-            );
+            return Err(MapliError::InvalidInput(format!(
+                "zoom {zoom} not in valid range of [0, {MAX_ZOOM}]"
+            )));
         }
-        Ok(Self { lon, lat, zoom, bearing: 0.0, pitch: 0.0 })
+        Ok(Self {
+            lon,
+            lat,
+            zoom,
+            bearing: 0.0,
+            pitch: 0.0,
+        })
     }
 
     /// Initialize with an input bearing, in degrees; Accepts any finite value, which gets normalized to [0, 360].
     pub fn with_bearing(mut self, bearing: f64) -> Result<Self> {
         if !bearing.is_finite() {
-            return Err(
-                MapliError::InvalidInput(format!("bearing {bearing} is not finite"))
-            )
+            return Err(MapliError::InvalidInput(format!(
+                "bearing {bearing} is not finite"
+            )));
         }
         self.bearing = bearing.rem_euclid(360.0);
         Ok(self)
@@ -108,24 +114,37 @@ impl Camera {
 
     pub fn with_pitch(mut self, pitch: f64) -> Result<Self> {
         if !(0.0..=MAX_PITCH).contains(&pitch) {
-            return Err(
-                MapliError::InvalidInput(format!("pitch {pitch} is not in valid range of [0, {MAX_PITCH}]"))
-            )
+            return Err(MapliError::InvalidInput(format!(
+                "pitch {pitch} is not in valid range of [0, {MAX_PITCH}]"
+            )));
         }
         self.pitch = pitch;
         Ok(self)
     }
 
-    pub fn lon(&self) -> f64 { self.lon }
-    pub fn lat(&self) -> f64 { self.lat }
-    pub fn zoom(&self) -> f64 { self.zoom }
-    pub fn bearing(&self) -> f64 { self.bearing }
-    pub fn pitch(&self) -> f64 { self.pitch }
+    pub fn lon(&self) -> f64 {
+        self.lon
+    }
+    pub fn lat(&self) -> f64 {
+        self.lat
+    }
+    pub fn zoom(&self) -> f64 {
+        self.zoom
+    }
+    pub fn bearing(&self) -> f64 {
+        self.bearing
+    }
+    pub fn pitch(&self) -> f64 {
+        self.pitch
+    }
 
     /// Convert to a maplibre_native CameraUpdate
     pub(crate) fn to_camera_update(self) -> maplibre_native::CameraUpdate {
         maplibre_native::CameraUpdate::new()
-            .center(maplibre_native::LatLng {lat: self.lat, lng: self.lon})
+            .center(maplibre_native::LatLng {
+                lat: self.lat,
+                lng: self.lon,
+            })
             .zoom(self.zoom)
             .bearing(self.bearing)
             .pitch(self.pitch)
@@ -137,20 +156,22 @@ impl Camera {
 /// `f32` does not implement `Eq` nor `Hash` (because of NaN and -0.0), but we need both in order
 /// to be able to incorporate this in cache keys. As such this type rejects non-finite and
 /// non-positive values, after which comparing and hashing is possible in a sound way.
-#[derive(Debug, Clone,Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct PixelRatio(f32);
 
 impl PixelRatio {
     pub fn new(ratio: f32) -> Result<Self> {
         if !ratio.is_finite() || ratio <= 0.0 {
-            return Err(
-                MapliError::InvalidInput(format!("pixel ratio {ratio} must be finite and > 0.0"))
-            )
+            return Err(MapliError::InvalidInput(format!(
+                "pixel ratio {ratio} must be finite and > 0.0"
+            )));
         }
         Ok(Self(ratio))
     }
 
-    pub fn get(&self) -> f32 { self.0 }
+    pub fn get(&self) -> f32 {
+        self.0
+    }
 }
 
 impl Default for PixelRatio {
@@ -183,17 +204,22 @@ pub struct ImageSpec {
 
 impl ImageSpec {
     pub fn new(width: u32, height: u32) -> Result<Self> {
-        let w = NonZeroU32::new(width).ok_or_else(|| MapliError::InvalidInput("width must be > 0".into()))?;
-        let h = NonZeroU32::new(height).ok_or_else(|| MapliError::InvalidInput("height must be > 0".into()))?;
-        Ok(Self { width: w, height: h, pixel_ratio: PixelRatio::default() })
+        let w = NonZeroU32::new(width)
+            .ok_or_else(|| MapliError::InvalidInput("width must be > 0".into()))?;
+        let h = NonZeroU32::new(height)
+            .ok_or_else(|| MapliError::InvalidInput("height must be > 0".into()))?;
+        Ok(Self {
+            width: w,
+            height: h,
+            pixel_ratio: PixelRatio::default(),
+        })
     }
 
-    pub fn with_pixel_ration(mut self, pixel_ratio: PixelRatio) -> Self {
+    pub fn with_pixel_ratio(mut self, pixel_ratio: PixelRatio) -> Self {
         self.pixel_ratio = pixel_ratio;
         self
     }
 }
-
 
 /// A tile address in WebMercatorQuad (XYZ) scheme
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -206,25 +232,30 @@ pub struct TileCoord {
 impl TileCoord {
     pub fn new(z: u8, x: u32, y: u32) -> Result<Self> {
         if z > MAX_TILE_ZOOM {
-            return Err(
-                MapliError::InvalidInput(format!("tile zoom {z} is not in valid range of [0, {MAX_TILE_ZOOM}]"))
-            );
+            return Err(MapliError::InvalidInput(format!(
+                "tile zoom {z} is not in valid range of [0, {MAX_TILE_ZOOM}]"
+            )));
         }
 
         let n = 1u32 << z;
         if x >= n || y >= n {
-            return Err(
-                MapliError::InvalidInput(format!("tile coords {z}/{x}/{y} are out of range"))
-            )
+            return Err(MapliError::InvalidInput(format!(
+                "tile coords {z}/{x}/{y} are out of range"
+            )));
         }
         Ok(Self { z, x, y })
     }
 
-    pub fn z(&self) -> u8 { self.z }
-    pub fn x(&self) -> u32 { self.x }
-    pub fn y(&self) -> u32 { self.y }
+    pub fn z(&self) -> u8 {
+        self.z
+    }
+    pub fn x(&self) -> u32 {
+        self.x
+    }
+    pub fn y(&self) -> u32 {
+        self.y
+    }
 }
-
 
 #[derive(Debug, Clone)]
 pub struct StaticRequest {
@@ -266,7 +297,10 @@ mod tests {
 
     #[test]
     fn bearing_is_normalised() {
-        let cam = Camera::new(0.0, 0.0, 0.0).unwrap().with_bearing(-90.0).unwrap();
+        let cam = Camera::new(0.0, 0.0, 0.0)
+            .unwrap()
+            .with_bearing(-90.0)
+            .unwrap();
         assert_eq!(cam.bearing(), 270.0);
     }
 
@@ -284,5 +318,4 @@ mod tests {
         assert!(TileCoord::new(3, 7, 7).is_ok());
         assert!(TileCoord::new(3, 8, 0).is_err());
     }
-
 }

@@ -1,4 +1,6 @@
-use crate::error::{MapliError,Result};
+use image::RgbaImage;
+
+use crate::error::{MapliError, Result};
 
 pub fn encode_png(img: &RgbaImage) -> Result<Vec<u8>> {
     let mut buf = std::io::Cursor::new(Vec::new());

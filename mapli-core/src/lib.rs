@@ -12,4 +12,3 @@ pub use types::*;
 // Re-export `RgbaImage` from the `image` crate so that users of this crate don't have to depend
 // on `image` themselves.
 pub use image::RgbaImage;
-

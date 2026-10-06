@@ -4,15 +4,12 @@
 //! It creates a static renderer, loads a style from a URL, sets the camera position, and
 //! renders the map to an image. Finally, it saves the rendered image as "map.png".
 
-use maplibre_native::{CameraUpdate, ImageRendererBuilder, Image, LatLng};
+use maplibre_native::{CameraUpdate, Image, ImageRendererBuilder, LatLng};
 use std::num::NonZeroU32;
 
 fn main() {
     let mut renderer = ImageRendererBuilder::new()
-        .with_size(
-            NonZeroU32::new(512).unwrap(),
-            NonZeroU32::new(512).unwrap()
-        )
+        .with_size(NonZeroU32::new(512).unwrap(), NonZeroU32::new(512).unwrap())
         .build_static_renderer();
     renderer.load_style_from_url(&"https://demotiles.maplibre.org/style.json".parse().unwrap());
     let camera = CameraUpdate::new()
@@ -22,6 +19,10 @@ fn main() {
 
     // Access the underlying ImageBuffer for all operations
     let img_buffer = image.as_image();
-    println!("Image dimensions: {}x{}", img_buffer.width(), img_buffer.height());
+    println!(
+        "Image dimensions: {}x{}",
+        img_buffer.width(),
+        img_buffer.height()
+    );
     img_buffer.save("map.png").unwrap();
 }

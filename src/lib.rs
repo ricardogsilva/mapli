@@ -12,15 +12,34 @@ use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
-use mapli_core::{Camera, ImageSpec, PixelRatio, PoolConfig, StaticRequest, Style };
+use mapli_core::{Camera, ImageSpec, PixelRatio, PoolConfig, StaticRequest, Style};
 
 // We use the name `mapli` (and not `mapli-core`) for the Python module because users
 // import these from the `mapli` python package
-create_exception!(mapli, MapliError, PyException, "Base exception for mapli errors");
-create_exception!(mapli, UnknownStyleError, MapliError, "The style id has not been registered");
-create_exception!(mapli, StyleLoadError, MapliError, "MapLibre Native failed to load a style.");
-create_exception!(mapli, RenderError, MapliError, "MapLibre Native failed render.");
-
+create_exception!(
+    mapli,
+    MapliError,
+    PyException,
+    "Base exception for mapli errors"
+);
+create_exception!(
+    mapli,
+    UnknownStyleError,
+    MapliError,
+    "The style id has not been registered"
+);
+create_exception!(
+    mapli,
+    StyleLoadError,
+    MapliError,
+    "MapLibre Native failed to load a style."
+);
+create_exception!(
+    mapli,
+    RenderError,
+    MapliError,
+    "MapLibre Native failed render."
+);
 
 fn to_py_err(err: mapli_core::MapliError) -> PyErr {
     use mapli_core::MapliError as E;
@@ -28,7 +47,7 @@ fn to_py_err(err: mapli_core::MapliError) -> PyErr {
     match err {
         E::InvalidInput(_) => PyValueError::new_err(msg),
         E::UnknownStyle(_) => UnknownStyleError::new_err(msg),
-        E::StyleLoadFailed(_) => StyleLoadError::new_err(msg),
+        E::StyleLoadFailed { .. } => StyleLoadError::new_err(msg),
         E::RenderFailed(_) | E::PngEncodingFailed(_) => RenderError::new_err(msg),
         _ => MapliError::new_err(msg),
     }
@@ -56,8 +75,11 @@ impl RenderPool {
             .ok_or_else(|| PyValueError::new_err("workers must be >= 1"))?;
         let max_renderers_per_worker = NonZeroUsize::new(max_renderers_per_worker)
             .ok_or_else(|| PyValueError::new_err("max_renderers_per_worker must be >= 1"))?;
-        let inner = mapli_core::RenderPool::new(PoolConfig { workers, max_renderers_per_worker })
-            .map_err(to_py_err)?;
+        let inner = mapli_core::RenderPool::new(PoolConfig {
+            workers,
+            max_renderers_per_worker,
+        })
+        .map_err(to_py_err)?;
         Ok(Self { inner })
     }
 
@@ -72,11 +94,16 @@ impl RenderPool {
     ) -> PyResult<()> {
         let style = match (url, path, json) {
             (Some(u), None, None) => Style::Url(
-                u.parse().map_err(|e| PyValueError::new_err(format!("invalid url: {u:?}: {e}")))?,
+                u.parse()
+                    .map_err(|e| PyValueError::new_err(format!("invalid url: {u:?}: {e}")))?,
             ),
             (None, Some(p), None) => Style::Path(p),
             (None, None, Some(j)) => Style::Json(j),
-            _ => return Err(PyValueError::new_err("pass exactly one of url, path or json")),
+            _ => {
+                return Err(PyValueError::new_err(
+                    "pass exactly one of url, path or json",
+                ));
+            }
         };
         self.inner.register_style(style_id, style);
         Ok(())
@@ -107,8 +134,17 @@ impl RenderPool {
         // build and validate the request while holding the GIL, so we can return a
         // PyErr if something is wrong
         let req = build_static_request(
-            style_id, lon, lat, zoom, width, height, bearing, pitch, pixel_ratio
-        ).map_err(to_py_err)?;
+            style_id,
+            lon,
+            lat,
+            zoom,
+            width,
+            height,
+            bearing,
+            pitch,
+            pixel_ratio,
+        )
+        .map_err(to_py_err)?;
 
         // now release the GIL for doing the actual rendering and PNG encoding, since both are
         // slow and don't need it (they don't touch Python objects).
@@ -143,11 +179,13 @@ fn build_static_request(
     let camera = Camera::new(lon, lat, zoom)?
         .with_bearing(bearing)?
         .with_pitch(pitch)?;
-    let spec = ImageSpec::new(width, height)?
-        .with_pixel_ratio(PixelRatio::new(pixel_ratio)?);
-    Ok(StaticRequest { style: style_id.into(), camera, spec })
+    let spec = ImageSpec::new(width, height)?.with_pixel_ratio(PixelRatio::new(pixel_ratio)?);
+    Ok(StaticRequest {
+        style: style_id.into(),
+        camera,
+        spec,
+    })
 }
-
 
 /// The function name must match the last segment of `module-name` in the pyproject.toml file
 /// and also the `lib[name] in Cargo.toml.

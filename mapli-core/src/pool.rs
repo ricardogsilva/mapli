@@ -33,10 +33,10 @@ pub struct PoolConfig {
     /// MapLibre run loop, GPU context and renderer cache, which also means memory consumption
     /// grows with this number.
     /// The pool will distribute rendering requests across the workers.
-    pub workers:NonZeroUsize,
+    pub workers: NonZeroUsize,
 
     /// Maximum number of cached renderers per worker.
-    pub max_renderers_per_worker: usize,
+    pub max_renderers_per_worker: NonZeroUsize,
 }
 
 impl Default for PoolConfig {
@@ -54,6 +54,18 @@ pub struct RenderPool {
     workers: Vec<JoinHandle<()>>,
 }
 
+impl Drop for RenderPool {
+    fn drop(&mut self) {
+        // dropping the sender disconnects the channel, which means each worker's `rx.iter()` loop ends
+        drop(self.tx.take());
+        for handle in self.workers.drain(..) {
+            // if a worker had panicked, it would return an error here, but we wouldn't do
+            // anything with it during drop, so just ignore
+            let _ = handle.join();
+        }
+    }
+}
+
 impl RenderPool {
     pub fn new(config: PoolConfig) -> Result<Self> {
         // a shared multi-consumer queue: idle workers pull the next command from it
@@ -67,11 +79,15 @@ impl RenderPool {
             let handle = std::thread::Builder::new()
                 .name(format!("mapli-worker-{i}"))
                 .spawn(move || worker::run(rx, styles, max_renderers))
-                .map_err(|e| MapliError::WorkerSpawnError(e.to_string()))?;
+                .map_err(|e| MapliError::WorkerSpawnFailed(e.to_string()))?;
             workers.push(handle);
         }
 
-        Ok(Self { tx: Some(tx), styles, workers})
+        Ok(Self {
+            tx: Some(tx),
+            styles,
+            workers,
+        })
     }
 
     /// Register or replace a style in the pool's style registry.
@@ -91,7 +107,7 @@ impl RenderPool {
     pub fn render(&self, req: StaticRequest) -> Result<RgbaImage> {
         self.ensure_style(&req.style)?;
         let rx = self.submit(|reply| Command::Static { req, reply })?;
-        rx.recv().map_err(|e| MapliError::WorkerGone)?
+        rx.recv().map_err(|_| MapliError::WorkerGone)?
     }
 
     /// Render a static map image asynchronously, using the pool of workers.
@@ -99,14 +115,11 @@ impl RenderPool {
     /// The request is submitted to the pool immediately, and the returned future will resolve
     /// when the rendering is complete. Submission occurs on the calling thread, but the actual
     /// rendering is done in a worker thread. Submission is immediate upon calliong of this method.
-    pub fn render_async(
-        &self,
-        req: StaticRequest
-    ) -> impl Future<Output = Result<RgbaImage>> {
+    pub fn render_async(&self, req: StaticRequest) -> impl Future<Output = Result<RgbaImage>> {
         let submitted = self
             .ensure_style(&req.style)
             .and_then(|()| self.submit(|reply| Command::Static { req, reply }));
-        async move {submitted?.await.map_err(|e| MapliError::WorkerGone)? }
+        async move { submitted?.await.map_err(|_| MapliError::WorkerGone)? }
     }
 
     fn ensure_style(&self, id: &StyleId) -> Result<()> {
@@ -122,7 +135,8 @@ impl RenderPool {
         let (reply, rx) = oneshot::channel();
         let tx = self.tx.as_ref().ok_or(MapliError::PoolClosed)?;
         // `send` only fails if the receiver has been dropped, which means the pool is shutting down.
-        tx.send(make_command(reply)).map_err(|_| MapliError::PoolClosed)?;
+        tx.send(make_command(reply))
+            .map_err(|_| MapliError::PoolClosed)?;
         Ok(rx)
     }
 

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Arc;
 
-use crossbeam::channel::Receiver;
+use crossbeam_channel::Receiver;
 use image::RgbaImage;
 use maplibre_native::{ImageRenderer, ImageRendererBuilder, Static};
 
@@ -25,7 +25,6 @@ pub(crate) enum Command {
 /// Thread entry point. Returns when the channel is disconnected, i.e. when
 /// the `RenderPool` has been dropped and the queue is drained.
 pub(crate) fn run(rx: Receiver<Command>, styles: StyleRegistry, max_renderers: usize) {
-
     // this is created on the thread and everything inside `worker` stays in-thread
     let mut worker = Worker::new(styles, max_renderers);
 
@@ -43,12 +42,15 @@ type StaticKey = (StyleId, ImageSpec);
 
 struct Worker {
     styles: StyleRegistry,
-    statics: RendererCache<StaticKey, ImageRenderer<Static>>
+    statics: RendererCache<StaticKey, ImageRenderer<Static>>,
 }
 
 impl Worker {
     fn new(styles: StyleRegistry, max_renderers: usize) -> Self {
-        Self { styles, statics: RendererCache::new(max_renderers) }
+        Self {
+            styles,
+            statics: RendererCache::new(max_renderers),
+        }
     }
 
     fn render_static(&mut self, req: StaticRequest) -> Result<RgbaImage> {
@@ -56,14 +58,14 @@ impl Worker {
 
         let styles = &self.styles;
         let renderer = self.statics.get_or_try_insert_with(key, || {
-            let style = lookup_style(styles, req.style)?;
+            let style = lookup_style(styles, &req.style)?;
             let mut renderer = ImageRendererBuilder::new()
                 .with_size(req.spec.width, req.spec.height)
                 .with_pixel_ratio(req.spec.pixel_ratio.get())
                 .build_static_renderer();
             load_style(&mut renderer, &req.style, &style)?;
             Ok(renderer)
-        });
+        })?;
 
         let image = renderer
             .render_static(&req.camera.to_camera_update())
@@ -82,12 +84,18 @@ fn lookup_style(styles: &StyleRegistry, id: &StyleId) -> Result<Arc<Style>> {
 }
 
 fn load_style<M>(renderer: &mut ImageRenderer<M>, id: &StyleId, style: &Style) -> Result<()> {
-    let result = match style {
+    let fail = |message: String| MapliError::StyleLoadFailed {
+        id: id.clone(),
+        message,
+    };
+    let request = match style {
         Style::Url(url) => renderer.load_style_from_url(url),
-        Style::Path(path) => renderer.load_style_from_path(path),
+        Style::Path(path) => renderer
+            .load_style_from_path(path)
+            .map_err(|e| fail(e.to_string()))?,
         Style::Json(json) => renderer.load_style_from_json_str(json),
     };
-    result.map_err(|e| MapliError::StyleLoadFailed { id: id.clone(), message: e.to_string() })
+    request.wait().map_err(|e| fail(e.to_string()))
 }
 
 struct RendererCache<K, V> {
@@ -98,7 +106,11 @@ struct RendererCache<K, V> {
 
 impl<K: Eq + Hash + Clone, V> RendererCache<K, V> {
     fn new(capacity: usize) -> Self {
-        Self { entries: HashMap::new(), clock: 0, capacity }
+        Self {
+            entries: HashMap::new(),
+            clock: 0,
+            capacity,
+        }
     }
 
     /// Get the value for `key`, creating it with `create` if missing.
@@ -121,7 +133,10 @@ impl<K: Eq + Hash + Clone, V> RendererCache<K, V> {
             self.entries.insert(key.clone(), (value, now));
         }
 
-        let entry = self.entries.get_mut(&key).expect("entry was just checked or inserted");
+        let entry = self
+            .entries
+            .get_mut(&key)
+            .expect("entry was just checked or inserted");
         entry.1 = now;
         Ok(&mut entry.0)
     }
@@ -161,7 +176,8 @@ mod tests {
     fn failed_creation_does_not_evict() {
         let mut cache: RendererCache<&str, u32> = RendererCache::new(1);
         cache.get_or_try_insert_with("a", || Ok(1)).unwrap();
-        let res = cache.get_or_try_insert_with("b", || Err(Error::Render("boom".into())));
+        let res =
+            cache.get_or_try_insert_with("b", || Err(MapliError::RenderFailed("boom".into())));
         assert!(res.is_err());
         assert!(cache.entries.contains_key("a"));
     }
