@@ -30,6 +30,10 @@ pub enum MapliError {
     #[error("render failed")]
     RenderFailed(String),
 
+    /// Encoding to PNG failed.
+    #[error("failed to encode PNG: {0}")]
+    PngEncodingFailed(String),
+
     /// OS refused to start a worker thread
     #[error("failed to spawn render worker: {0}")]
     WorkerSpawnFailed(String),

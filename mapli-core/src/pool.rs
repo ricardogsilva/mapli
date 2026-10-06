@@ -1,3 +1,12 @@
+//! Thread-safe pool of workers for rendering map tiles.
+//!
+//! This module implements a thread-safe pool of workers for rendering map images
+//! and tiles. The `RenderPool` struct is `Send+Sync` and can be shared between
+//! threads. It manages a set of worker threads that can render map images and
+//! tiles concurrently.
+//! The pool also maintains a registry of styles that can be used by the workers to
+//! render the images.
+//! All MapLibre state lives in the worker threads, so the pool is just a thin wrapper around them.
 use std::collections::HashMap;
 use std::future::Future;
 use std::num::NonZeroUsize;
@@ -20,16 +29,103 @@ pub(crate) type StyleRegistry = Arc<RwLock<HashMap<StyleId, Arc<Style>>>>;
 type ReplyReceiver = oneshot::Receiver<Result<RgbaImage>>;
 
 pub struct PoolConfig {
-    pub workers:usize,
+    /// Number of worker threads to spawn in the pool. Each worker thread owns its own
+    /// MapLibre run loop, GPU context and renderer cache, which also means memory consumption
+    /// grows with this number.
+    /// The pool will distribute rendering requests across the workers.
+    pub workers:NonZeroUsize,
+
+    /// Maximum number of cached renderers per worker.
     pub max_renderers_per_worker: usize,
 }
 
-impl RenderPool {
-    pub fn new(config: PoolConfig) -> Result<Self, Error>;
-    pub fn register_style(&self, id: impl Into<StyleId>, style: Style);
-    pub fn render(&self, req: StaticRequest) -> Result<RgbaImage, Error>;
-    pub fn render_async(&self, req: StaticRequest) -> impl Future<Output = Result<RgbaImage, Error>>;
+impl Default for PoolConfig {
+    fn default() -> Self {
+        Self {
+            workers: NonZeroUsize::MIN,
+            max_renderers_per_worker: NonZeroUsize::new(8).unwrap(),
+        }
+    }
+}
 
-    pub fn render_tile(&self, req: TileRequest) -> Result<RgbaImage, Error>;
-    pub fn render_tile_async(&self, req: TileRequest) -> impl Future<Output = Result<RgbaImage, Error>>;
+pub struct RenderPool {
+    tx: Option<Sender<Command>>,
+    styles: StyleRegistry,
+    workers: Vec<JoinHandle<()>>,
+}
+
+impl RenderPool {
+    pub fn new(config: PoolConfig) -> Result<Self> {
+        // a shared multi-consumer queue: idle workers pull the next command from it
+        let (tx, rx) = crossbeam_channel::unbounded::<Command>();
+        let styles: StyleRegistry = Arc::default();
+        let mut workers = Vec::with_capacity(config.workers.get());
+        for i in 0..config.workers.get() {
+            let rx = rx.clone();
+            let styles = Arc::clone(&styles);
+            let max_renderers = config.max_renderers_per_worker.get();
+            let handle = std::thread::Builder::new()
+                .name(format!("mapli-worker-{i}"))
+                .spawn(move || worker::run(rx, styles, max_renderers))
+                .map_err(|e| MapliError::WorkerSpawnError(e.to_string()))?;
+            workers.push(handle);
+        }
+
+        Ok(Self { tx: Some(tx), styles, workers})
+    }
+
+    /// Register or replace a style in the pool's style registry.
+    ///
+    /// This allows workers to access the style when rendering.
+    pub fn register_style(&self, id: impl Into<StyleId>, style: Style) {
+        let mut styles = self.styles.write().unwrap_or_else(|p| p.into_inner());
+        styles.insert(id.into(), Arc::new(style));
+    }
+
+    pub fn has_style(&self, id: &StyleId) -> bool {
+        let styles = self.styles.read().unwrap_or_else(|p| p.into_inner());
+        styles.contains_key(id)
+    }
+
+    /// Render a static map image using the pool of workers.
+    pub fn render(&self, req: StaticRequest) -> Result<RgbaImage> {
+        self.ensure_style(&req.style)?;
+        let rx = self.submit(|reply| Command::Static { req, reply })?;
+        rx.recv().map_err(|e| MapliError::WorkerGone)?
+    }
+
+    /// Render a static map image asynchronously, using the pool of workers.
+    ///
+    /// The request is submitted to the pool immediately, and the returned future will resolve
+    /// when the rendering is complete. Submission occurs on the calling thread, but the actual
+    /// rendering is done in a worker thread. Submission is immediate upon calliong of this method.
+    pub fn render_async(
+        &self,
+        req: StaticRequest
+    ) -> impl Future<Output = Result<RgbaImage>> {
+        let submitted = self
+            .ensure_style(&req.style)
+            .and_then(|()| self.submit(|reply| Command::Static { req, reply }));
+        async move {submitted?.await.map_err(|e| MapliError::WorkerGone)? }
+    }
+
+    fn ensure_style(&self, id: &StyleId) -> Result<()> {
+        if self.has_style(id) {
+            Ok(())
+        } else {
+            Err(MapliError::UnknownStyle(id.clone()))
+        }
+    }
+
+    /// Submit a command to the pool and return a receiver for the reply.
+    fn submit(&self, make_command: impl FnOnce(Reply) -> Command) -> Result<ReplyReceiver> {
+        let (reply, rx) = oneshot::channel();
+        let tx = self.tx.as_ref().ok_or(MapliError::PoolClosed)?;
+        // `send` only fails if the receiver has been dropped, which means the pool is shutting down.
+        tx.send(make_command(reply)).map_err(|_| MapliError::PoolClosed)?;
+        Ok(rx)
+    }
+
+    // pub fn render_tile(&self, req: TileRequest) -> Result<RgbaImage, Error>;
+    // pub fn render_tile_async(&self, req: TileRequest) -> impl Future<Output = Result<RgbaImage, Error>>;
 }

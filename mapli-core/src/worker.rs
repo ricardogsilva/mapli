@@ -1,3 +1,8 @@
+//! Worker threads for rendering requests. This is where the MapLibre renderers operate.
+//!
+//! Each worker owns its own renderers as local state of the thread. This is because MapLibre
+//! renderers are not `Send`able.
+
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -81,7 +86,7 @@ fn load_style<M>(renderer: &mut ImageRenderer<M>, id: &StyleId, style: &Style) -
         Style::Url(url) => renderer.load_style_from_url(url),
         Style::Path(path) => renderer.load_style_from_path(path),
         Style::Json(json) => renderer.load_style_from_json_str(json),
-    }
+    };
     result.map_err(|e| MapliError::StyleLoadFailed { id: id.clone(), message: e.to_string() })
 }
 

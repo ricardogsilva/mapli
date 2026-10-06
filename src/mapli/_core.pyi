@@ -1,1 +1,35 @@
-def hello_from_bin() -> str: ...
+from os import PathLike
+
+class MapliError(Exception): ...
+class UnknownStyleError(MapliError): ...
+class StyleLoadError(MapliError): ...
+class RenderError(MapliError): ...
+
+class RenderPool:
+
+    def __init__(self, workers: int = 1, max_renderers_per_worker: int = 8) -> None: ...
+
+    def register_style(
+        self,
+        style_id: str,
+        *,
+        url: str | None = None,
+        path: str | PathLike[str] | None = None,
+        json: str | None = None,
+    ) -> None: ...
+
+    def has_style(self, style_id: str) -> bool: ...
+
+    def render(
+        self,
+        style_id: str,
+        *,
+        lon: float,
+        lat: float,
+        zoom: float,
+        width: int,
+        height: int,
+        beta: float = 0.0,
+        pitch: float = 0.0,
+        pixel_ratio: float = 1.0,
+    ) -> bytes: ...

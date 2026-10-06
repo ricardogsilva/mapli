@@ -1248,9 +1248,6 @@ dependencies = [
 name = "mapli"
 version = "0.1.0"
 dependencies = [
- "crossbeam-channel",
- "image",
- "oneshot",
  "pyo3",
 ]
 
@@ -1258,7 +1255,10 @@ dependencies = [
 name = "mapli-core"
 version = "0.1.0"
 dependencies = [
+ "crossbeam-channel",
+ "image",
  "maplibre_native",
+ "oneshot",
  "thiserror 2.0.21",
  "url",
 ]
