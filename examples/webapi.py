@@ -1,4 +1,12 @@
-"""Example FastAPI web API that uses mapli to render map images."""
+"""Example FastAPI web API that uses mapli to render map images.
+
+Run it like this:
+
+```shell
+uv sync --group dev
+uv run fastapi dev examples/webapi.py
+```
+"""
 
 from contextlib import asynccontextmanager
 from typing import (
