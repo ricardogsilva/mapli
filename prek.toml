@@ -39,4 +39,11 @@ hooks = [
     entry = "uvx ruff format",
     pass_filenames = false,
   },
+  {
+    id = "ty-check",
+    name = "ty check",
+    language = "system",
+    entry = "uvx ty check",
+    pass_filenames = false,
+  },
 ]
