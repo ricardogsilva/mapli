@@ -1,0 +1,288 @@
+//! Public value types for mapli-core.
+//!
+//! These types are all plain data. This means they are `Send + Sync`-able and can be used
+//! in threaded code. Also importantly, these are free of `maplibre_native` types.
+//! Validation is done via constructors, which means that instances are always implicitly valid.
+//!
+
+use std::fmt;
+use std::hash::{Hash, Hasher};
+use std::num::NonZeroU32;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use maplibre_native;
+use url::Url;
+
+use crate::error::{MapliError, Result};
+
+/// Web Mercator latitude limit.
+/// https://www.coordinately.org/learn/web-mercator-projection
+pub const MAX_LAT: f64 = 85.051_128_779_806_59;
+
+/// Upper zoom bound we accept.
+pub const MAX_ZOOM: f64 = 24.0;
+
+/// Upper pitch bound in degrees. Verify against MapLibre Native's current limit.
+pub const MAX_PITCH: f64 = 60.0;
+
+/// Highest tile zoom level; 2^24 still fits comfortably in a u32.
+pub const MAX_TILE_ZOOM: u8 = 24;
+
+/// Identifier under which a style is registered in the pool
+/// Cloning is a refcount bump, as IDs are cloned into every request and cache key
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StyleId(Arc<str>);
+
+impl StyleId {
+    pub fn as_str(&self) -> &str {
+        &*self.0
+    }
+}
+
+impl fmt::Display for StyleId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl From<&str> for StyleId {
+    fn from(s: &str) -> Self {
+        StyleId(Arc::from(s))
+    }
+}
+
+impl From<String> for StyleId {
+    fn from(s: String) -> Self {
+        StyleId(Arc::from(s))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Style {
+    Url(Url),
+    Path(PathBuf),
+    Json(String),
+}
+
+/// Map camera, in lon/lat order
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Camera {
+    pub lon: f64,
+    pub lat: f64,
+    pub zoom: f64,
+    pub bearing: f64,
+    pub pitch: f64,
+}
+
+impl Camera {
+    pub fn new(lon: f64, lat:f64, zoom: f64) -> Result<Self> {
+        if !(-180.0..=180.0).contains(&lon) {
+            return Err(
+                MapliError::InvalidInput(format!("lon {lon} not in valid range of [-180, 180]"))
+            );
+        }
+        if !(-MAX_LAT..=MAX_LAT).contains(&lat) {
+            return Err(
+                MapliError::InvalidInput(format!("lat {lat} not in valid range of [-{MAX_LAT}, {MAX_LAT}]"))
+            );
+        }
+        if !(0.0..=MAX_ZOOM).contains(&zoom) {
+            return Err(
+                MapliError::InvalidInput(format!("zoom {zoom} not in valid range of [0, {MAX_ZOOM}]"))
+            );
+        }
+        Ok(Self { lon, lat, zoom, bearing: 0.0, pitch: 0.0 })
+    }
+
+    /// Initialize with an input bearing, in degrees; Accepts any finite value, which gets normalized to [0, 360].
+    pub fn with_bearing(mut self, bearing: f64) -> Result<Self> {
+        if !bearing.is_finite() {
+            return Err(
+                MapliError::InvalidInput(format!("bearing {bearing} is not finite"))
+            )
+        }
+        self.bearing = bearing.rem_euclid(360.0);
+        Ok(self)
+    }
+
+    pub fn with_pitch(mut self, pitch: f64) -> Result<Self> {
+        if !(0.0..=MAX_PITCH).contains(&pitch) {
+            return Err(
+                MapliError::InvalidInput(format!("pitch {pitch} is not in valid range of [0, {MAX_PITCH}]"))
+            )
+        }
+        self.pitch = pitch;
+        Ok(self)
+    }
+
+    pub fn lon(&self) -> f64 { self.lon }
+    pub fn lat(&self) -> f64 { self.lat }
+    pub fn zoom(&self) -> f64 { self.zoom }
+    pub fn bearing(&self) -> f64 { self.bearing }
+    pub fn pitch(&self) -> f64 { self.pitch }
+
+    /// Convert to a maplibre_native CameraUpdate
+    pub(crate) fn to_camera_update(self) -> maplibre_native::CameraUpdate {
+        maplibre_native::CameraUpdate::new()
+            .center(maplibre_native::LatLng {lat: self.lat, lng: self.lon})
+            .zoom(self.zoom)
+            .bearing(self.bearing)
+            .pitch(self.pitch)
+    }
+}
+
+/// Device pixel ratio
+///
+/// `f32` does not implement `Eq` nor `Hash` (because of NaN and -0.0), but we need both in order
+/// to be able to incorporate this in cache keys. As such this type rejects non-finite and
+/// non-positive values, after which comparing and hashing is possible in a sound way.
+#[derive(Debug, Clone,Copy)]
+pub struct PixelRatio(f32);
+
+impl PixelRatio {
+    pub fn new(ratio: f32) -> Result<Self> {
+        if !ratio.is_finite() || ratio <= 0.0 {
+            return Err(
+                MapliError::InvalidInput(format!("pixel ratio {ratio} must be finite and > 0.0"))
+            )
+        }
+        Ok(Self(ratio))
+    }
+
+    pub fn get(&self) -> f32 { self.0 }
+}
+
+impl Default for PixelRatio {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
+impl PartialEq for PixelRatio {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_bits() == other.0.to_bits()
+    }
+}
+
+impl Eq for PixelRatio {}
+
+impl Hash for PixelRatio {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.to_bits().hash(state);
+    }
+}
+
+/// Output image dimensions
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ImageSpec {
+    pub width: NonZeroU32,
+    pub height: NonZeroU32,
+    pub pixel_ratio: PixelRatio,
+}
+
+impl ImageSpec {
+    pub fn new(width: u32, height: u32) -> Result<Self> {
+        let w = NonZeroU32::new(width).ok_or_else(|| MapliError::InvalidInput("width must be > 0".into()))?;
+        let h = NonZeroU32::new(height).ok_or_else(|| MapliError::InvalidInput("height must be > 0".into()))?;
+        Ok(Self { width: w, height: h, pixel_ratio: PixelRatio::default() })
+    }
+
+    pub fn with_pixel_ration(mut self, pixel_ratio: PixelRatio) -> Self {
+        self.pixel_ratio = pixel_ratio;
+        self
+    }
+}
+
+
+/// A tile address in WebMercatorQuad (XYZ) scheme
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TileCoord {
+    z: u8,
+    x: u32,
+    y: u32,
+}
+
+impl TileCoord {
+    pub fn new(z: u8, x: u32, y: u32) -> Result<Self> {
+        if z > MAX_TILE_ZOOM {
+            return Err(
+                MapliError::InvalidInput(format!("tile zoom {z} is not in valid range of [0, {MAX_TILE_ZOOM}]"))
+            );
+        }
+
+        let n = 1u32 << z;
+        if x >= n || y >= n {
+            return Err(
+                MapliError::InvalidInput(format!("tile coords {z}/{x}/{y} are out of range"))
+            )
+        }
+        Ok(Self { z, x, y })
+    }
+
+    pub fn z(&self) -> u8 { self.z }
+    pub fn x(&self) -> u32 { self.x }
+    pub fn y(&self) -> u32 { self.y }
+}
+
+
+#[derive(Debug, Clone)]
+pub struct StaticRequest {
+    pub style: StyleId,
+    pub camera: Camera,
+    pub spec: ImageSpec,
+}
+
+#[derive(Debug, Clone)]
+pub struct TileRequest {
+    pub style: StyleId,
+    pub tile: TileCoord,
+    pub tile_size: NonZeroU32,
+    pub pixel_ratio: PixelRatio,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Assert that everything that crosses the thread boundary is Send+Sync
+    #[test]
+    fn types_are_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<StyleId>();
+        assert_send_sync::<Style>();
+        assert_send_sync::<StaticRequest>();
+        assert_send_sync::<TileRequest>();
+        assert_send_sync::<MapliError>();
+    }
+
+    #[test]
+    fn camera_rejects_out_of_range() {
+        assert!(Camera::new(181.0, 0.0, 0.0).is_err());
+        assert!(Camera::new(0.0, 89.0, 0.0).is_err());
+        assert!(Camera::new(0.0, 0.0, -1.0).is_err());
+        assert!(Camera::new(-9.14, 38.72, 12.0).is_ok());
+    }
+
+    #[test]
+    fn bearing_is_normalised() {
+        let cam = Camera::new(0.0, 0.0, 0.0).unwrap().with_bearing(-90.0).unwrap();
+        assert_eq!(cam.bearing(), 270.0);
+    }
+
+    #[test]
+    fn pixel_ratio_rejects_nan_and_zero() {
+        assert!(PixelRatio::new(f32::NAN).is_err());
+        assert!(PixelRatio::new(0.0).is_err());
+        assert!(PixelRatio::new(2.0).is_ok());
+    }
+
+    #[test]
+    fn tile_coord_bounds() {
+        assert!(TileCoord::new(0, 0, 0).is_ok());
+        assert!(TileCoord::new(0, 1, 0).is_err());
+        assert!(TileCoord::new(3, 7, 7).is_ok());
+        assert!(TileCoord::new(3, 8, 0).is_err());
+    }
+
+}

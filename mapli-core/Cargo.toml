@@ -1,0 +1,9 @@
+[package]
+name = "mapli-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+maplibre_native = { version = "0.10.0", features = ["opengl"] }
+thiserror = "2.0.21"
+url = "2.5.8"
