@@ -1,29 +1,4 @@
-"""mapli: Render MapLibre styles to images in-process.
-
->>> import asyncio
->>> from pathlib import Path
->>> import mapli
->>> CITIES = {
-...     "lisbon": (-9.14, 38.72),
-...     "porto": (-8.61, 41.15),
-...     "madrid": (-3.70, 40.42),
-...     "paris": (2.35, 48.86),
->>> }
->>> async def main() -> None:
-...     pool = mapli.RenderPool(workers=2)
-...     pool.register_style("demo", url="https://demotiles.maplibre.org/style.json")
-...
-...     async def thumbnail(name: str, lon: float, lat: float) -> None:
-...         png = await pool.arender("demo", lon=lon, lat=lat, zoom=5, width=256, height=256)
-...         Path(f"{name}.png").write_bytes(png)
-...         print(f"wrote {name}.png ({len(png)} bytes)")
-...
-...     await asyncio.gather(
-...         *(thumbnail(name, lon, lat) for name, (lon, lat) in CITIES.items())
-...     )
-...
->>> asyncio.run(main())
-"""
+"""mapli: Render MapLibre styles to images in-process."""
 
 import asyncio
 import json as _json
@@ -39,9 +14,9 @@ from ._core import (
 )
 
 __all__ = [
-    "RenderPool",
     "MapliError",
     "RenderError",
+    "RenderPool",
     "StyleLoadError",
     "UnknownStyleError",
 ]

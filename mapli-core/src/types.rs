@@ -11,7 +11,6 @@ use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use maplibre_native;
 use url::Url;
 
 use crate::error::{MapliError, Result};
@@ -36,7 +35,7 @@ pub struct StyleId(Arc<str>);
 
 impl StyleId {
     pub fn as_str(&self) -> &str {
-        &*self.0
+        &self.0
     }
 }
 
