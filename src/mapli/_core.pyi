@@ -25,7 +25,20 @@ class RenderPool:
         zoom: float,
         width: int,
         height: int,
-        beta: float = 0.0,
+        bearing: float = 0.0,
+        pitch: float = 0.0,
+        pixel_ratio: float = 1.0,
+    ) -> bytes: ...
+    async def arender(
+        self,
+        style_id: str,
+        *,
+        lon: float,
+        lat: float,
+        zoom: float,
+        width: int,
+        height: int,
+        bearing: float = 0.0,
         pitch: float = 0.0,
         pixel_ratio: float = 1.0,
     ) -> bytes: ...

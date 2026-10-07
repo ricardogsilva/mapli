@@ -7,7 +7,7 @@
 //! Notably, there is no trace of the wrapped MapLibre Native, as mapli-core abstracts away the
 //! underlying implementation details.
 
-use mapli_core::{Camera, ImageSpec, PoolConfig, RenderPool, StaticRequest, Style};
+use mapli_core::{Camera, ImageSpec, OutputFormat, PoolConfig, RenderPool, StaticRequest, Style};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pool = RenderPool::new(PoolConfig::default())?;
@@ -20,10 +20,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         style: "demo".into(),
         camera: Camera::new(-9.14, 38.72, 4.0)?,
         spec: ImageSpec::new(512, 512)?,
+        format: OutputFormat::Png,
     };
 
-    let image = pool.render(req)?;
-    image.save("map.png")?;
-    println!("Wrote map.png ({}x{})", image.width(), image.height());
+    // the worker thread already encoded the image, so this is a no-op
+    let png = pool.render(req)?.into_png()?;
+    std::fs::write("map.png", &png)?;
+    println!("Wrote map.png ({} bytes)", png.len());
     Ok(())
 }

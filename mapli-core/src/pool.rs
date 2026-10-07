@@ -14,10 +14,9 @@ use std::sync::{Arc, RwLock};
 use std::thread::JoinHandle;
 
 use crossbeam_channel::Sender;
-use image::RgbaImage;
 
 use crate::error::{MapliError, Result};
-use crate::types::{StaticRequest, Style, StyleId};
+use crate::types::{Rendered, StaticRequest, Style, StyleId};
 use crate::worker::{self, Command, Reply};
 
 /// Styles shared between the pool (writer) and workers (readers).
@@ -26,7 +25,7 @@ use crate::worker::{self, Command, Reply};
 /// before doing the slow work of loading it.
 pub(crate) type StyleRegistry = Arc<RwLock<HashMap<StyleId, Arc<Style>>>>;
 
-type ReplyReceiver = oneshot::Receiver<Result<RgbaImage>>;
+type ReplyReceiver = oneshot::Receiver<Result<Rendered>>;
 
 pub struct PoolConfig {
     /// Number of worker threads to spawn in the pool. Each worker thread owns its own
@@ -104,7 +103,7 @@ impl RenderPool {
     }
 
     /// Render a static map image using the pool of workers.
-    pub fn render(&self, req: StaticRequest) -> Result<RgbaImage> {
+    pub fn render(&self, req: StaticRequest) -> Result<Rendered> {
         self.ensure_style(&req.style)?;
         let rx = self.submit(|reply| Command::Static { req, reply })?;
         rx.recv().map_err(|_| MapliError::WorkerGone)?
@@ -114,8 +113,14 @@ impl RenderPool {
     ///
     /// The request is submitted to the pool immediately, and the returned future will resolve
     /// when the rendering is complete. Submission occurs on the calling thread, but the actual
-    /// rendering is done in a worker thread. Submission is immediate upon calliong of this method.
-    pub fn render_async(&self, req: StaticRequest) -> impl Future<Output = Result<RgbaImage>> {
+    /// rendering is done in a worker thread. Submission is immediate upon calling of this method.
+    ///
+    /// The returned future does not borrow the pool (`use<>`), so it is `'static` and can be
+    /// handed to an executor or to Python.
+    pub fn render_async(
+        &self,
+        req: StaticRequest,
+    ) -> impl Future<Output = Result<Rendered>> + Send + use<> {
         let submitted = self
             .ensure_style(&req.style)
             .and_then(|()| self.submit(|reply| Command::Static { req, reply }));

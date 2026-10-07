@@ -12,7 +12,9 @@ use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
-use mapli_core::{Camera, ImageSpec, PixelRatio, PoolConfig, StaticRequest, Style};
+use mapli_core::{
+    Camera, ImageSpec, OutputFormat, PixelRatio, PoolConfig, Rendered, StaticRequest, Style,
+};
 
 // We use the name `mapli` (and not `mapli-core`) for the Python module because users
 // import these from the `mapli` python package
@@ -109,6 +111,7 @@ impl RenderPool {
         Ok(())
     }
 
+    /// Whether a style has been registered under `style_id`.
     fn has_style(&self, style_id: &str) -> bool {
         self.inner.has_style(&style_id.into())
     }
@@ -146,17 +149,61 @@ impl RenderPool {
         )
         .map_err(to_py_err)?;
 
-        // now release the GIL for doing the actual rendering and PNG encoding, since both are
-        // slow and don't need it (they don't touch Python objects).
+        // now release the GIL while the worker renders and encodes, since both are slow and
+        // don't touch Python objects.
         let png = py
-            .detach(|| {
-                let image = self.inner.render(req)?;
-                mapli_core::encode_png(&image)
-            })
+            .detach(|| self.inner.render(req).and_then(Rendered::into_png))
             .map_err(to_py_err)?;
 
         // we have the GIL again: copy the bytes into a Python `bytes` object and return it
         Ok(PyBytes::new(py, &png))
+    }
+
+    /// Asynchronously render a static map image to PNG bytes.
+    ///
+    /// Returns a coroutine that must be awaited inside an asyncio event loop. Nothing is
+    /// submitted to the pool until it is first awaited. Cancelling it skips the render if a
+    /// worker has not picked it up yet.
+    #[pyo3(signature = (
+        style_id, *, lon, lat, zoom ,width, height,
+        bearing = 0.0, pitch = 0.0, pixel_ratio = 1.0,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    async fn arender(
+        &self,
+        style_id: String,
+        lon: f64,
+        lat: f64,
+        zoom: f64,
+        width: u32,
+        height: u32,
+        bearing: f64,
+        pitch: f64,
+        pixel_ratio: f32,
+    ) -> PyResult<Py<PyBytes>> {
+        let req = build_static_request(
+            &style_id,
+            lon,
+            lat,
+            zoom,
+            width,
+            height,
+            bearing,
+            pitch,
+            pixel_ratio,
+        )
+        .map_err(to_py_err)?;
+
+        // This future is polled on the event loop thread, so it must not do CPU work.
+        // The worker already encoded the PNG, which makes `into_png` a no-op here.
+        let png = self
+            .inner
+            .render_async(req)
+            .await
+            .and_then(Rendered::into_png)
+            .map_err(to_py_err)?;
+
+        Ok(Python::attach(|py| PyBytes::new(py, &png).unbind()))
     }
 
     fn __repr__(&self) -> String {
@@ -184,6 +231,7 @@ fn build_static_request(
         style: style_id.into(),
         camera,
         spec,
+        format: OutputFormat::Png,
     })
 }
 
