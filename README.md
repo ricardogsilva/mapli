@@ -2,6 +2,14 @@
 
 Python bindings for the [maplibre_native] Rust crate.
 
+### Examples
+
+There are two early usage examples in the `/examples` dir:
+
+- A quick script that renders a map thumbnail.
+- A small FastAPI app that exposes a single path operation that renders map PNGs
+
+
 ## rust crate
 
 Use `cargo` to build, test, show docs, etc. as usual.
