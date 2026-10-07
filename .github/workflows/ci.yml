@@ -15,6 +15,29 @@ jobs:
     outputs:
       artifact_name: ${{ env.ARTIFACT_NAME }}
     steps:
+      - name: "install system dependencies"
+        run: |
+          # these are taken from maplibre-native-rs' justfile
+          sudo apt-get update
+          sudo apt-get install -y \
+              libgl1-mesa-dev \
+              libegl1-mesa-dev \
+              libgl1-mesa-dri \
+              build-essential \
+              libcurl4-openssl-dev \
+              libuv1-dev \
+              libz-dev \
+              libfontconfig-dev \
+              glslang-dev \
+              glslang-tools \
+              libicu-dev \
+              libpng-dev \
+              libjpeg-turbo8-dev \
+              libwebp-dev \
+              ccache \
+              cmake \
+              pkg-config
+
       - uses: actions/checkout@v7
 
       - name: "Format Rust code"
