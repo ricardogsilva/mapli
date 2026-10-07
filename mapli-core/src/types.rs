@@ -11,8 +11,10 @@ use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use image::RgbaImage;
 use url::Url;
 
+use crate::encode::encode_png;
 use crate::error::{MapliError, Result};
 
 /// Web Mercator latitude limit.
@@ -256,11 +258,40 @@ impl TileCoord {
     }
 }
 
+/// Output format of a rendered image.
+///
+/// Encoding happens on the worker thread, so callers receive ready-to-use bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OutputFormat {
+    /// Raw RGBA pixels, no encoding.
+    #[default]
+    Raw,
+    Png,
+}
+
+/// A rendered image, in the `OutputFormat` that was requested.
+#[derive(Debug, Clone)]
+pub enum Rendered {
+    Raw(RgbaImage),
+    Png(Vec<u8>),
+}
+
+impl Rendered {
+    /// Return PNG bytes, encoding them first if this is a raw image.
+    pub fn into_png(self) -> Result<Vec<u8>> {
+        match self {
+            Rendered::Raw(img) => encode_png(&img),
+            Rendered::Png(bytes) => Ok(bytes),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct StaticRequest {
     pub style: StyleId,
     pub camera: Camera,
     pub spec: ImageSpec,
+    pub format: OutputFormat,
 }
 
 #[derive(Debug, Clone)]
@@ -284,6 +315,14 @@ mod tests {
         assert_send_sync::<StaticRequest>();
         assert_send_sync::<TileRequest>();
         assert_send_sync::<MapliError>();
+        assert_send_sync::<Rendered>();
+    }
+
+    #[test]
+    fn rendered_into_png() {
+        let png = Rendered::Raw(RgbaImage::new(1, 1)).into_png().unwrap();
+        assert!(png.starts_with(b"\x89PNG"));
+        assert_eq!(Rendered::Png(png.clone()).into_png().unwrap(), png);
     }
 
     #[test]

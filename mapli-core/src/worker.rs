@@ -11,11 +11,12 @@ use crossbeam_channel::Receiver;
 use image::RgbaImage;
 use maplibre_native::{ImageRenderer, ImageRendererBuilder, Static};
 
+use crate::encode::encode;
 use crate::error::{MapliError, Result};
 use crate::pool::StyleRegistry;
-use crate::types::{ImageSpec, StaticRequest, Style, StyleId};
+use crate::types::{ImageSpec, Rendered, StaticRequest, Style, StyleId};
 
-pub(crate) type Reply = oneshot::Sender<Result<RgbaImage>>;
+pub(crate) type Reply = oneshot::Sender<Result<Rendered>>;
 
 pub(crate) enum Command {
     Static { req: StaticRequest, reply: Reply },
@@ -31,7 +32,13 @@ pub(crate) fn run(rx: Receiver<Command>, styles: StyleRegistry, max_renderers: u
     for cmd in rx.iter() {
         match cmd {
             Command::Static { req, reply } => {
-                let result = worker.render_static(req);
+                if reply.is_closed() {
+                    continue; // no point in rendering if caller already dropped the receiver
+                }
+                let format = req.format;
+                let result = worker
+                    .render_static(req)
+                    .and_then(|img| encode(img, format));
                 let _ = reply.send(result);
             }
         }

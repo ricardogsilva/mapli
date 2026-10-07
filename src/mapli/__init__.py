@@ -1,6 +1,5 @@
 """mapli: Render MapLibre styles to images in-process."""
 
-import asyncio
 import json as _json
 from os import PathLike
 from typing import Any
@@ -42,22 +41,3 @@ class RenderPool(_core.RenderPool):
             super().register_style(style_id, url=url, path=path, json=json_str)
         else:
             super().register_style(style_id, url=url, path=path, json=json)
-
-    async def arender(self, style_id: str, **kwargs: Any) -> bytes:
-        """Asynchronously render a MapLibre style to an image.
-
-        This method runs the synchronous `render` method in a separate thread,
-        allowing it to be used in asynchronous contexts without blocking the event loop.
-        """
-        return await asyncio.to_thread(self.render, style_id, **kwargs)
-
-
-#
-# pool = mapli.RenderPool(workers=2)
-# pool.register_style("demo", url="https://demotiles.maplibre.org/style.json")
-# png_map = pool.render("demo", lon=-9.14, lat=38.72, zoom=4, width=512, height=512)
-#
-# and also an async wrapper:
-#
-# async def arender(self, *args, **kwargs) -> bytes:
-#     return await asyncio.to_thread(self.render, *args, **kwargs)
