@@ -4,7 +4,7 @@
 //! releases the GIL around anything slow, and converts results and errors back. All real logic
 //! is in mapli-core.
 
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::PathBuf;
 
 use pyo3::create_exception;
@@ -14,6 +14,7 @@ use pyo3::types::PyBytes;
 
 use mapli_core::{
     Camera, ImageSpec, OutputFormat, PixelRatio, PoolConfig, Rendered, StaticRequest, Style,
+    TileCoord, TileRequest,
 };
 
 // We use the name `mapli` (and not `mapli-core`) for the Python module because users
@@ -213,6 +214,56 @@ impl RenderPool {
         Ok(Python::attach(|py| PyBytes::new(py, &png).unbind()))
     }
 
+    /// Render a map tile in the XYZ (WebMercatorQuad) scheme to PNG bytes.
+    ///
+    /// `tile_size` is in logical pixels; the image is `tile_size * pixel_ratio` pixels wide.
+    /// MapLibre zoom levels are based on 512 px tiles, so 256 px tiles cannot be rendered at z=0.
+    #[pyo3(signature = (style_id, *, z, x, y, tile_size = 512, pixel_ratio = 1.0))]
+    #[allow(clippy::too_many_arguments)]
+    fn render_tile<'py>(
+        &self,
+        py: Python<'py>,
+        style_id: &str,
+        z: u8,
+        x: u32,
+        y: u32,
+        tile_size: u32,
+        pixel_ratio: f32,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let req =
+            build_tile_request(style_id, z, x, y, tile_size, pixel_ratio).map_err(to_py_err)?;
+        let png = py
+            .detach(|| self.inner.render_tile(req).and_then(Rendered::into_png))
+            .map_err(to_py_err)?;
+        Ok(PyBytes::new(py, &png))
+    }
+
+    /// Asynchronously render a map tile to PNG bytes.
+    ///
+    /// Behaves like `arender`: returns a coroutine that submits the request when first awaited.
+    #[pyo3(signature = (style_id, *, z, x, y, tile_size = 512, pixel_ratio = 1.0))]
+    #[allow(clippy::too_many_arguments)]
+    async fn arender_tile(
+        &self,
+        style_id: String,
+        z: u8,
+        x: u32,
+        y: u32,
+        tile_size: u32,
+        pixel_ratio: f32,
+    ) -> PyResult<Py<PyBytes>> {
+        let req =
+            build_tile_request(&style_id, z, x, y, tile_size, pixel_ratio).map_err(to_py_err)?;
+        let png = self
+            .inner
+            .render_tile_async(req)
+            .await
+            .and_then(Rendered::into_png)
+            .map_err(to_py_err)?;
+
+        Ok(Python::attach(|py| PyBytes::new(py, &png).unbind()))
+    }
+
     fn __repr__(&self) -> String {
         "<mapli.RenderPool>".to_string()
     }
@@ -238,6 +289,25 @@ fn build_static_request(
         style: style_id.into(),
         camera,
         spec,
+        format: OutputFormat::Png,
+    })
+}
+
+fn build_tile_request(
+    style_id: &str,
+    z: u8,
+    x: u32,
+    y: u32,
+    tile_size: u32,
+    pixel_ratio: f32,
+) -> mapli_core::Result<TileRequest> {
+    let tile_size = NonZeroU32::new(tile_size)
+        .ok_or_else(|| mapli_core::MapliError::InvalidInput("tile_size must be > 0".into()))?;
+    Ok(TileRequest {
+        style: style_id.into(),
+        tile: TileCoord::new(z, x, y)?,
+        tile_size,
+        pixel_ratio: PixelRatio::new(pixel_ratio)?,
         format: OutputFormat::Png,
     })
 }

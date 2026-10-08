@@ -16,7 +16,7 @@ use std::thread::JoinHandle;
 use crossbeam_channel::Sender;
 
 use crate::error::{MapliError, Result};
-use crate::types::{Rendered, StaticRequest, Style, StyleId};
+use crate::types::{Rendered, StaticRequest, Style, StyleId, TileRequest};
 use crate::worker::{self, Command, Reply};
 
 /// Styles shared between the pool (writer) and workers (readers).
@@ -34,7 +34,8 @@ pub struct PoolConfig {
     /// The pool will distribute rendering requests across the workers.
     pub workers: NonZeroUsize,
 
-    /// Maximum number of cached renderers per worker.
+    /// Maximum number of cached renderers per worker, for each render mode. A worker keeps up to
+    /// this many static renderers and, separately, up to this many tile renderers.
     pub max_renderers_per_worker: NonZeroUsize,
 }
 
@@ -113,8 +114,7 @@ impl RenderPool {
     /// Render a static map image using the pool of workers.
     pub fn render(&self, req: StaticRequest) -> Result<Rendered> {
         self.ensure_style(&req.style)?;
-        let rx = self.submit(|reply| Command::Static { req, reply })?;
-        rx.recv().map_err(|_| MapliError::WorkerGone)?
+        Self::wait(self.submit(|reply| Command::Static { req, reply })?)
     }
 
     /// Render a static map image asynchronously, using the pool of workers.
@@ -132,7 +132,40 @@ impl RenderPool {
         let submitted = self
             .ensure_style(&req.style)
             .and_then(|()| self.submit(|reply| Command::Static { req, reply }));
-        async move { submitted?.await.map_err(|_| MapliError::WorkerGone)? }
+        Self::wait_async(submitted)
+    }
+
+    /// Render a map tile using the pool of workers.
+    pub fn render_tile(&self, req: TileRequest) -> Result<Rendered> {
+        req.validate()?;
+        self.ensure_style(&req.style)?;
+        Self::wait(self.submit(|reply| Command::Tile { req, reply })?)
+    }
+
+    /// Render a map tile asynchronously, using the pool of workers.
+    ///
+    /// Behaves like [`RenderPool::render_async`]: submission is immediate and the returned
+    /// future is `'static`.
+    pub fn render_tile_async(
+        &self,
+        req: TileRequest,
+    ) -> impl Future<Output = Result<Rendered>> + Send + use<> {
+        let submitted = req
+            .validate()
+            .and_then(|()| self.ensure_style(&req.style))
+            .and_then(|()| self.submit(|reply| Command::Tile { req, reply }));
+        Self::wait_async(submitted)
+    }
+
+    /// Block until a worker replies.
+    fn wait(rx: ReplyReceiver) -> Result<Rendered> {
+        rx.recv().map_err(|_| MapliError::WorkerGone)?
+    }
+
+    /// Wait for a worker reply without blocking. Takes the submission result so that
+    /// submission errors are returned from the future.
+    async fn wait_async(submitted: Result<ReplyReceiver>) -> Result<Rendered> {
+        submitted?.await.map_err(|_| MapliError::WorkerGone)?
     }
 
     fn ensure_style(&self, id: &StyleId) -> Result<()> {
@@ -152,7 +185,4 @@ impl RenderPool {
             .map_err(|_| MapliError::PoolClosed)?;
         Ok(rx)
     }
-
-    // pub fn render_tile(&self, req: TileRequest) -> Result<RgbaImage, Error>;
-    // pub fn render_tile_async(&self, req: TileRequest) -> impl Future<Output = Result<RgbaImage, Error>>;
 }

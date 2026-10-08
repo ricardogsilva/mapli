@@ -5,20 +5,68 @@ Python bindings for the [maplibre_native] Rust crate.
 This project provides a simple API to render map images and tiles from Python. It is a thin wrapper around 
 the [maplibre_native] crate, which is a Rust implementation of the MapLibre GL Native library.
 
+
 ### Examples
 
-There are two early usage examples in the `/examples` dir:
 
-- A quick script that renders a map thumbnail.
-- A small FastAPI app that exposes a single path operation that renders map PNGs
+```python
+import asyncio
+from pathlib import Path
+import mapli
+
+
+async def main() -> None:
+    render_pool = mapli.RenderPool(workers=2)
+    render_pool.register_style("demo", url="https://demotiles.maplibre.org/style.json")
+    png_bytes = await render_pool.arender(
+        "demo", lon=-9.14, lat=38.72, zoom=5, width=256, height=256
+    )
+    Path(f"mapli-lisbon.png").write_bytes(png_bytes)
+    print(f"wrote mapli-lisbon.png ({len(png_bytes)} bytes)")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+There are two additional early usage examples in the `/examples` dir:
+
+- A script that concurrently renders map thumbnails for some cities;
+- A small FastAPI app that renders map PNGs and serves XYZ map tiles;
+
+### Tiles
+
+Besides static images, mapli can render map tiles in the XYZ (WebMercatorQuad) scheme:
+
+```python
+import mapli
+
+pool = mapli.RenderPool(workers=2)
+pool.register_style("demo", url="https://demotiles.maplibre.org/style.json")
+
+png = pool.render_tile("demo", z=2, x=1, y=1)  # or `await pool.arender_tile(...)`
+```
+
+`tile_size` defaults to 512 px, which is MapLibre's native tile size. Most XYZ clients (Leaflet,
+OpenLayers) expect 256 px tiles, which you get with `tile_size=256`. Because MapLibre zoom levels
+are based on 512 px tiles, a 256 px tile is drawn one zoom level lower, so 256 px tiles cannot be
+rendered at `z=0`. Use `pixel_ratio=2` for high-DPI ("@2x") tiles.
 
 
 ## System requirements
 
+> [!IMPORTANT] OS support
+>
+> Linux (x86_64, ARM64) is supported. macOS on Apple Silicon should also be possible via MapLibre Native's Metal 
+> backend but is not yet built or tested. 
+> Windows is not supported and mapli will only be able to enable support for it if the 
+> [upstream maplibre-native-rs] project ever decides to implement it.
+
+
+[upstream maplibre-native-rs]: https://github.com/maplibre/maplibre-native-rs#platform-support
+
 mapli renders with MapLibre Native's OpenGL backend, which on Linux creates an EGL context in the
 process. 
-
-### Linux
 
 At runtime, mapli needs both:
 

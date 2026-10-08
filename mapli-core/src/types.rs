@@ -300,6 +300,26 @@ pub struct TileRequest {
     pub tile: TileCoord,
     pub tile_size: NonZeroU32,
     pub pixel_ratio: PixelRatio,
+    pub format: OutputFormat,
+}
+
+impl TileRequest {
+    /// Check that the tile can be rendered at its size.
+    ///
+    /// MapLibre zoom levels are based on 512 px tiles, so a smaller tile at zoom `z` is drawn at
+    /// map zoom `z - log2(512 / tile_size)`. MapLibre cannot zoom out below 0, which means e.g. a
+    /// 256 px tile at zoom 0 cannot be rendered.
+    pub fn validate(&self) -> Result<()> {
+        let map_zoom = f64::from(self.tile.z()) - (512.0 / f64::from(self.tile_size.get())).log2();
+        if map_zoom < 0.0 {
+            return Err(MapliError::InvalidInput(format!(
+                "cannot render a {} px tile at zoom {}",
+                self.tile_size,
+                self.tile.z()
+            )));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -355,5 +375,20 @@ mod tests {
         assert!(TileCoord::new(0, 1, 0).is_err());
         assert!(TileCoord::new(3, 7, 7).is_ok());
         assert!(TileCoord::new(3, 8, 0).is_err());
+    }
+
+    #[test]
+    fn tile_request_rejects_zoom_too_low_for_size() {
+        let req = |z, size| TileRequest {
+            style: "s".into(),
+            tile: TileCoord::new(z, 0, 0).unwrap(),
+            tile_size: NonZeroU32::new(size).unwrap(),
+            pixel_ratio: PixelRatio::default(),
+            format: OutputFormat::Raw,
+        };
+        assert!(req(0, 256).validate().is_err());
+        assert!(req(0, 512).validate().is_ok());
+        assert!(req(1, 256).validate().is_ok());
+        assert!(req(0, 1024).validate().is_ok());
     }
 }

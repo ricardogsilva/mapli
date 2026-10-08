@@ -43,3 +43,23 @@ class RenderPool:
         pitch: float = 0.0,
         pixel_ratio: float = 1.0,
     ) -> bytes: ...
+    def render_tile(
+        self,
+        style_id: str,
+        *,
+        z: int,
+        x: int,
+        y: int,
+        tile_size: int = 512,
+        pixel_ratio: float = 1.0,
+    ) -> bytes: ...
+    async def arender_tile(
+        self,
+        style_id: str,
+        *,
+        z: int,
+        x: int,
+        y: int,
+        tile_size: int = 512,
+        pixel_ratio: float = 1.0,
+    ) -> bytes: ...
