@@ -57,7 +57,9 @@ rendered at `z=0`. Use `pixel_ratio=2` for high-DPI ("@2x") tiles.
 
 > [!IMPORTANT] OS support
 >
-> Linux (x86_64, ARM64) is supported. macOS on Apple Silicon should also be possible via MapLibre Native's Metal 
+> For not only Linux is supported. Prebuilt wheels are available for x86_64 and need glibc 2.34 or newer (e.g. Ubuntu 22.04+,
+> Debian 12+, RHEL 9+). ARM64 should work when building from source, but no wheels are built for it yet.
+> macOS on Apple Silicon should also be possible via MapLibre Native's Metal 
 > backend but is not yet built or tested. 
 > Windows is not supported and mapli will only be able to enable support for it if the 
 > [upstream maplibre-native-rs] project ever decides to implement it.
@@ -68,13 +70,21 @@ rendered at `z=0`. Use `pixel_ratio=2` for high-DPI ("@2x") tiles.
 mapli renders with MapLibre Native's OpenGL backend, which on Linux creates an EGL context in the
 process. 
 
-At runtime, mapli needs both:
+The wheels bundle most of the libraries MapLibre Native needs (ICU, libpng, libjpeg, libwebp, libuv).
+At runtime, mapli additionally needs:
 
 - An EGL driver - A GPU is not required: Mesa's `llvmpipe` software renderer works fine on
   servers and in containers. On Debian/Ubuntu:
 
   ```shell
   sudo apt-get install libegl1 libegl-mesa0 libgl1-mesa-dri
+  ```
+
+- libcurl - Used to fetch remote styles, tiles, fonts and sprites. It is not bundled, so that it uses
+  your system's CA certificates. Most systems already have it. On Debian/Ubuntu:
+
+  ```shell
+  sudo apt-get install libcurl4t64  # libcurl4 on Ubuntu 22.04 and Debian 12
   ```
 
 - A display - This can be your normal display (on a desktop machine) or a headless server, 
@@ -90,7 +100,7 @@ At runtime, mapli needs both:
   environment variable for the process using mapli. Desktop machines that already have a display
   don't need this.
 
-If either is missing, creating a `RenderPool` raises `mapli.GraphicsUnavailableError` with details
+If the EGL driver or the display is missing, creating a `RenderPool` raises `mapli.GraphicsUnavailableError` with details
 about which EGL step failed:
 
 ```python
@@ -129,7 +139,7 @@ sudo apt-get install \
     libjpeg-turbo8-dev \
     libpng-dev \
     libuv1-dev \
-    libwebp-dev
+    libwebp-dev \
     libz-dev \
     pkg-config
 ```
@@ -153,6 +163,29 @@ This means we can simply invoke `uv` as usual.
 
 Running `uv sync --no-editable --reinstall-package` causes uv to build a non-debug version of the package, which can
 be useful for benchmarking.
+
+
+### Building distributable wheels
+
+Distributable wheels can be built inside a [manylinux] `manylinux_2_34` container, which links against an older glibc 
+and bundles the remaining libraries with [auditwheel]. The script included in `scripts/build-manylinux-wheel.sh` can 
+be used for this - it is used in CI too. 
+
+Run it locally with:
+
+```shell
+docker run --rm -v "$PWD":/io -w /io \
+    -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+    -e CARGO_TARGET_DIR=/build/target -v mapli-manylinux-build:/build \
+    quay.io/pypa/manylinux_2_34_x86_64 scripts/build-manylinux-wheel.sh
+```
+
+The wheel and sdist end up in `dist/`. The `mapli-manylinux-build` volume keeps the build cache between runs, so
+only the first build compiles MapLibre Native from scratch.
+
+In CI, the `build_wheel` job builds the wheel on pushes to `main` and on release tags (it can also be started
+manually from the Actions tab), and the `test_wheel` job then runs the test suite against it on a plain Ubuntu
+runner that only has the runtime dependencies listed above installed.
 
 
 ## Related projects
@@ -186,6 +219,8 @@ a narrower, task-specific API.
 [maplibre_native]: https://docs.rs/maplibre_native/0.10.0/maplibre_native/index.html
 [maturin]: https://www.maturin.rs/
 [uv]: https://docs.astral.sh/uv/
+[manylinux]: https://github.com/pypa/manylinux
+[auditwheel]: https://github.com/pypa/auditwheel
 [py-maplibregl]: https://github.com/eodaGmbH/py-maplibregl
 [leafmap]: https://github.com/opengeos/leafmap
 [lonboard]: https://github.com/developmentseed/lonboard
