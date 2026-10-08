@@ -66,7 +66,15 @@ impl Drop for RenderPool {
 }
 
 impl RenderPool {
+    /// Create a pool and spawn its workers.
+    ///
+    /// On Linux, this first checks that an EGL context can be created and returns
+    /// [`MapliError::GraphicsUnavailable`] if not. Without the check, MapLibre Native would abort
+    /// the process on the first render instead.
     pub fn new(config: PoolConfig) -> Result<Self> {
+        #[cfg(target_os = "linux")]
+        crate::egl::check()?;
+
         // a shared multi-consumer queue: idle workers pull the next command from it
         let (tx, rx) = crossbeam_channel::unbounded::<Command>();
         let styles: StyleRegistry = Arc::default();

@@ -9,7 +9,12 @@ def test_compiled_extension_is_importable():
 
 @pytest.mark.parametrize(
     "error_class",
-    [mapli.UnknownStyleError, mapli.StyleLoadError, mapli.RenderError],
+    [
+        mapli.UnknownStyleError,
+        mapli.StyleLoadError,
+        mapli.RenderError,
+        mapli.GraphicsUnavailableError,
+    ],
 )
 def test_errors_share_base_class(error_class):
     assert issubclass(error_class, mapli.MapliError)

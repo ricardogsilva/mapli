@@ -6,6 +6,7 @@ from typing import Any
 
 from . import _core
 from ._core import (
+    GraphicsUnavailableError,
     MapliError,
     RenderError,
     StyleLoadError,
@@ -13,6 +14,7 @@ from ._core import (
 )
 
 __all__ = [
+    "GraphicsUnavailableError",
     "MapliError",
     "RenderError",
     "RenderPool",

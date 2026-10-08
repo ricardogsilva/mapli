@@ -1,3 +1,5 @@
+#[cfg(target_os = "linux")]
+mod egl;
 mod encode;
 mod error;
 mod pool;

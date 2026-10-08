@@ -17,3 +17,4 @@ mapli-core = { path = "mapli-core" }
 
 [workspace]
 members = [".", "mapli-core"]
+default-members = [".", "mapli-core"]

@@ -33,6 +33,14 @@ pub enum MapliError {
     #[error("failed to encode PNG: {0}")]
     PngEncodingFailed(String),
 
+    /// The system cannot provide the OpenGL (EGL) context MapLibre Native renders with, e.g.
+    /// because no EGL driver is installed or no display is available.
+    #[error(
+        "no usable OpenGL (EGL) context: {0}. On Linux, mapli needs Mesa's EGL drivers and a \
+         display (e.g. run under Xvfb); see the README"
+    )]
+    GraphicsUnavailable(String),
+
     /// OS refused to start a worker thread
     #[error("failed to spawn render worker: {0}")]
     WorkerSpawnFailed(String),
