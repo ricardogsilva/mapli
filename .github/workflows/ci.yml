@@ -92,7 +92,8 @@ jobs:
               libwebp-dev \
               ccache \
               cmake \
-              pkg-config
+              pkg-config \
+              xvfb
 
       - uses: actions/checkout@v7
 
@@ -128,8 +129,11 @@ jobs:
       - name: "Run ty"
         run: uv run ty check
 
+      # Runners have no GPU or display. MapLibre's EGL headless backend calls
+      # eglGetDisplay(EGL_DEFAULT_DISPLAY), which needs a display to fall back to
+      # Mesa's llvmpipe software renderer, so provide a virtual one.
       - name: "Run Python tests"
-        run: uv run pytest
+        run: xvfb-run -a --server-args="-screen 0 1280x1024x24" uv run pytest
 
       # Release-mode build (another full maplibre-native compile), so only do it when the wheel gets uploaded
       - name: "Build mapli wheel"
