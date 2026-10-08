@@ -5,22 +5,23 @@
 
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use crossbeam_channel::Receiver;
 use image::RgbaImage;
-use maplibre_native::{ImageRenderer, ImageRendererBuilder, Static};
+use maplibre_native::{ImageRenderer, ImageRendererBuilder, Static, Tile};
 
 use crate::encode::encode;
 use crate::error::{MapliError, Result};
 use crate::pool::StyleRegistry;
-use crate::types::{ImageSpec, Rendered, StaticRequest, Style, StyleId};
+use crate::types::{ImageSpec, PixelRatio, Rendered, StaticRequest, Style, StyleId, TileRequest};
 
 pub(crate) type Reply = oneshot::Sender<Result<Rendered>>;
 
 pub(crate) enum Command {
     Static { req: StaticRequest, reply: Reply },
-    // Tile { req: TileRequest, reply: Reply },
+    Tile { req: TileRequest, reply: Reply },
 }
 
 /// Thread entry point. Returns when the channel is disconnected, i.e. when
@@ -41,15 +42,25 @@ pub(crate) fn run(rx: Receiver<Command>, styles: StyleRegistry, max_renderers: u
                     .and_then(|img| encode(img, format));
                 let _ = reply.send(result);
             }
+            Command::Tile { req, reply } => {
+                if reply.is_closed() {
+                    continue;
+                }
+                let format = req.format;
+                let result = worker.render_tile(req).and_then(|img| encode(img, format));
+                let _ = reply.send(result);
+            }
         }
     }
 }
 
 type StaticKey = (StyleId, ImageSpec);
+type TileKey = (StyleId, NonZeroU32, PixelRatio);
 
 struct Worker {
     styles: StyleRegistry,
     statics: RendererCache<StaticKey, ImageRenderer<Static>>,
+    tiles: RendererCache<TileKey, ImageRenderer<Tile>>,
 }
 
 impl Worker {
@@ -57,6 +68,7 @@ impl Worker {
         Self {
             styles,
             statics: RendererCache::new(max_renderers),
+            tiles: RendererCache::new(max_renderers),
         }
     }
 
@@ -79,6 +91,28 @@ impl Worker {
             .map_err(|e| MapliError::RenderFailed(e.to_string()))?;
 
         // Copy into an owned, Send buffer that can leave this thread
+        Ok(image.as_image().clone())
+    }
+
+    fn render_tile(&mut self, req: TileRequest) -> Result<RgbaImage> {
+        let key = (req.style.clone(), req.tile_size, req.pixel_ratio);
+
+        let styles = &self.styles;
+        let renderer = self.tiles.get_or_try_insert_with(key, || {
+            let style = lookup_style(styles, &req.style)?;
+            // tile renderers use the width as the tile size, so the size must be square
+            let mut renderer = ImageRendererBuilder::new()
+                .with_size(req.tile_size, req.tile_size)
+                .with_pixel_ratio(req.pixel_ratio.get())
+                .build_tile_renderer();
+            load_style(&mut renderer, &req.style, &style)?;
+            Ok(renderer)
+        })?;
+
+        let image = renderer
+            .render_tile(req.tile.z(), req.tile.x(), req.tile.y())
+            .map_err(|e| MapliError::RenderFailed(e.to_string()))?;
+
         Ok(image.as_image().clone())
     }
 }

@@ -17,6 +17,7 @@ from typing import (
 from fastapi import (
     FastAPI,
     HTTPException,
+    Path,
     Query,
 )
 from fastapi.responses import Response
@@ -37,7 +38,7 @@ async def lifespan(app: FastAPI):
         pool.register_style(id_, url=url)
     app.state.mapli_render_pool = pool
     yield
-    del app.state.pool  # dropping the pool shuts down the workers
+    del app.state.mapli_render_pool  # dropping the pool shuts down the workers
 
 
 app = FastAPI(lifespan=lifespan)
@@ -67,6 +68,40 @@ async def render_map(
     try:
         png_bytes = await app.state.mapli_render_pool.arender(
             style_id, lon=lon, lat=lat, zoom=zoom, width=width, height=height
+        )
+    except mapli.UnknownStyleError:
+        raise HTTPException(status_code=404, detail=f"unknown style {style_id!r}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except mapli.MapliError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return Response(content=png_bytes, media_type="image/png")
+
+
+@app.get(
+    "/tiles/{style_id}/{z}/{x}/{y}.png",
+    response_model=None,
+    response_class=Response,
+    responses={
+        "200": {
+            "content": {
+                "image/png": {},
+            }
+        }
+    },
+)
+async def render_tile(
+    style_id: Literal["demo", "liberty", "positron"],
+    z: Annotated[int, Path(ge=0, le=24)],
+    x: Annotated[int, Path(ge=0)],
+    y: Annotated[int, Path(ge=0)],
+    tile_size: Annotated[int, Query(ge=256, le=512, multiple_of=256)] = 512,
+    pixel_ratio: Annotated[float, Query(gt=0, le=4)] = 1.0,
+) -> Response:
+    """Return a map tile in PNG format, in the XYZ scheme."""
+    try:
+        png_bytes = await app.state.mapli_render_pool.arender_tile(
+            style_id, z=z, x=x, y=y, tile_size=tile_size, pixel_ratio=pixel_ratio
         )
     except mapli.UnknownStyleError:
         raise HTTPException(status_code=404, detail=f"unknown style {style_id!r}")
