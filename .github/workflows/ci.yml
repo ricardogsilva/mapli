@@ -21,6 +21,12 @@ jobs:
     env:
       # Route maplibre-native's from-source CMake build through ccache so C++ objects are reused across runs
       MLN_CMAKE_CXX_LAUNCHER: "ccache"
+      # The C++ build happens in target/debug/build/maplibre_native-<hash>/out, and the hash changes with
+      # e.g. the Rust toolchain version. Hash paths relative to the home dir (which covers both the
+      # workspace and the cargo registry) and leave the build dir out of the hash, so cached objects
+      # still match after such a change.
+      CCACHE_BASEDIR: "/home/runner"
+      CCACHE_NOHASHDIR: "true"
     steps:
       - name: "install system dependencies"
         run: |
@@ -68,6 +74,12 @@ jobs:
       ARTIFACT_NAME: "python-package"
       # Route maplibre-native's from-source CMake build through ccache so C++ objects are reused across runs
       MLN_CMAKE_CXX_LAUNCHER: "ccache"
+      # The C++ build happens in target/debug/build/maplibre_native-<hash>/out, and the hash changes with
+      # e.g. the Rust toolchain version. Hash paths relative to the home dir (which covers both the
+      # workspace and the cargo registry) and leave the build dir out of the hash, so cached objects
+      # still match after such a change.
+      CCACHE_BASEDIR: "/home/runner"
+      CCACHE_NOHASHDIR: "true"
     outputs:
       artifact_name: ${{ env.ARTIFACT_NAME }}
     steps:
@@ -92,7 +104,8 @@ jobs:
               libwebp-dev \
               ccache \
               cmake \
-              pkg-config
+              pkg-config \
+              xvfb
 
       - uses: actions/checkout@v7
 
@@ -105,9 +118,9 @@ jobs:
           key: ${{ github.job }}
           max-size: 2G
 
-      - name: "Run Rust tests"
-        run: cargo test --verbose
-
+      # Python must be set up before any cargo build: setup-python sets PKG_CONFIG_PATH, which
+      # openssl-sys tracks. If `cargo test` and `uv sync` saw different values, maplibre-native (which
+      # depends on openssl-sys) would be rebuilt by each of them, in every run.
       - name: "Set up uv"
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
 
@@ -115,6 +128,9 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version-file: "pyproject.toml"
+
+      - name: "Run Rust tests"
+        run: cargo test --verbose
 
       - name: "Install Python code with dev dependencies"
         run: uv sync --frozen --group dev
@@ -128,8 +144,11 @@ jobs:
       - name: "Run ty"
         run: uv run ty check
 
+      # Runners have no GPU or display. MapLibre's EGL headless backend calls
+      # eglGetDisplay(EGL_DEFAULT_DISPLAY), which needs a display to fall back to
+      # Mesa's llvmpipe software renderer, so provide a virtual one.
       - name: "Run Python tests"
-        run: uv run pytest
+        run: xvfb-run -a --server-args="-screen 0 1280x1024x24" uv run pytest
 
       # Release-mode build (another full maplibre-native compile), so only do it when the wheel gets uploaded
       - name: "Build mapli wheel"

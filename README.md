@@ -13,17 +13,89 @@ There are two early usage examples in the `/examples` dir:
 - A small FastAPI app that exposes a single path operation that renders map PNGs
 
 
-## rust crate
+## System requirements
+
+mapli renders with MapLibre Native's OpenGL backend, which on Linux creates an EGL context in the
+process. 
+
+### Linux
+
+At runtime, mapli needs both:
+
+- An EGL driver - A GPU is not required: Mesa's `llvmpipe` software renderer works fine on
+  servers and in containers. On Debian/Ubuntu:
+
+  ```shell
+  sudo apt-get install libegl1 libegl-mesa0 libgl1-mesa-dri
+  ```
+
+- A display - This can be your normal display (on a desktop machine) or a headless server, 
+  like xvfb
+
+  ```shell
+  # only needed if there is no graphical display installed
+  sudo apt-get install xvfb
+  xvfb-run -a python your_app.py
+  ```
+
+  For long-running services, you can instead run `Xvfb` as its own service and set the `DISPLAY`
+  environment variable for the process using mapli. Desktop machines that already have a display
+  don't need this.
+
+If either is missing, creating a `RenderPool` raises `mapli.GraphicsUnavailableError` with details
+about which EGL step failed:
+
+```python
+import mapli
+
+try:
+    pool = mapli.RenderPool(workers=2)
+except mapli.GraphicsUnavailableError as exc:
+    print(f"cannot render on this machine: {exc}")
+```
+
+
+## Development
+
+### rust crates
 
 Use `cargo` to build, test, show docs, etc. as usual.
 
-## Python package
 
-The repo contains a Python package that uses the rust crate. Checkout the `pyproject.toml` file for more info
+Building mapli compiles MapLibre Native from source, which needs a C++ toolchain and several
+development packages. On Debian/Ubuntu, ensure you have these installed:
+
+```shell
+sudo apt-get install \
+    build-essential \
+    ccache \
+    cmake \
+    glslang-dev \
+    glslang-tools \
+    libcurl4-openssl-dev \
+    libegl1-mesa-dev \
+    libfontconfig-dev \
+    libgl1-mesa-dev \
+    libgl1-mesa-dri \
+    libicu-dev \
+    libjpeg-turbo8-dev \
+    libpng-dev \
+    libuv1-dev \
+    libwebp-dev
+    libz-dev \
+    pkg-config
+```
+
+The first build takes a while (around 15 minutes on a GitHub Actions runner). Setting
+`MLN_CMAKE_CXX_LAUNCHER=ccache` routes the C++ compilation through ccache, which makes rebuilds
+much faster.
+
+
+### Python package
+
+The repo contains a Python package that uses the rust crates. Checkout the `pyproject.toml` file for more info
 on how it is set up. In short, it makes use of [maturin] as the build system for the rust crate, and uses [uv]
 as a build tool for the Python package.
-
-### development
 
 `uv sync` builds the project with a development build of the `mapli` crate. This works because we have
 `editable-profile = "dev"` in the `[tool.maturin]` section in `pyproject.toml`. The default sync way of uv is to
@@ -33,6 +105,7 @@ This means we can simply invoke `uv` as usual.
 
 Running `uv sync --no-editable --reinstall-package` causes uv to build a non-debug version of the package, which can
 be useful for benchmarking.
+
 
 ## Related projects
 

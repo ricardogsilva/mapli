@@ -38,6 +38,12 @@ create_exception!(
 );
 create_exception!(
     mapli,
+    GraphicsUnavailableError,
+    MapliError,
+    "The system cannot provide the OpenGL (EGL) context needed for rendering."
+);
+create_exception!(
+    mapli,
     RenderError,
     MapliError,
     "MapLibre Native failed render."
@@ -51,6 +57,7 @@ fn to_py_err(err: mapli_core::MapliError) -> PyErr {
         E::UnknownStyle(_) => UnknownStyleError::new_err(msg),
         E::StyleLoadFailed { .. } => StyleLoadError::new_err(msg),
         E::RenderFailed(_) | E::PngEncodingFailed(_) => RenderError::new_err(msg),
+        E::GraphicsUnavailable(_) => GraphicsUnavailableError::new_err(msg),
         _ => MapliError::new_err(msg),
     }
 }
@@ -246,5 +253,9 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("UnknownStyleError", py.get_type::<UnknownStyleError>())?;
     m.add("StyleLoadError", py.get_type::<StyleLoadError>())?;
     m.add("RenderError", py.get_type::<RenderError>())?;
+    m.add(
+        "GraphicsUnavailableError",
+        py.get_type::<GraphicsUnavailableError>(),
+    )?;
     Ok(())
 }
