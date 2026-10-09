@@ -442,7 +442,6 @@ wheels = [
 
 [[package]]
 name = "mapli"
-version = "0.1.0.dev1"
 source = { editable = "." }
 
 [package.dev-dependencies]

@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Initial implementation
+
+## [0.2.0] - 2026-10-09
+
+### Added
+- First release
+
 
 
 
 [unreleased]: https://github.com/ricardogsilva/mapli
+[0.2.0]: https://github.com/ricardogsilva/mapli/releases/tag/v0.2.0

@@ -6,8 +6,29 @@ This project provides a simple API to render map images and tiles from Python. I
 the [maplibre_native] crate, which is a Rust implementation of the MapLibre GL Native library.
 
 
-### Examples
+## Installation
 
+At the moment this project is not on PyPi. However, we upload prebuilt wheels as github release artifacts. This
+means you can point either `uv` or `pip` to them in order to get this installed:
+
+```shell
+uv add "https://github.com/ricardogsilva/mapli/releases/download/v0.2.0/mapli-0.2.0-cp39-abi3-manylinux_2_34_x86_64.whl"
+```
+
+```shell
+pip install "https://github.com/ricardogsilva/mapli/releases/download/v0.2.0/mapli-0.2.0-cp39-abi3-manylinux_2_34_x86_64.whl"
+```
+
+
+## Examples
+
+There are two early usage examples in the `/examples` dir:
+
+- A script that concurrently renders map thumbnails for some cities;
+- A small FastAPI app that renders map PNGs and serves XYZ map tiles.
+
+
+### Static image mode
 
 ```python
 import asyncio
@@ -29,12 +50,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-There are two additional early usage examples in the `/examples` dir:
-
-- A script that concurrently renders map thumbnails for some cities;
-- A small FastAPI app that renders map PNGs and serves XYZ map tiles;
-
-### Tiles
+### Tile mode
 
 Besides static images, mapli can render map tiles in the XYZ (WebMercatorQuad) scheme:
 
@@ -55,7 +71,7 @@ rendered at `z=0`. Use `pixel_ratio=2` for high-DPI ("@2x") tiles.
 
 ## System requirements
 
-> [!IMPORTANT] OS support
+> [!IMPORTANT]
 >
 > For not only Linux is supported. Prebuilt wheels are available for x86_64 and need glibc 2.34 or newer (e.g. Ubuntu 22.04+,
 > Debian 12+, RHEL 9+). ARM64 should work when building from source, but no wheels are built for it yet.
@@ -187,8 +203,30 @@ In CI, the `build_wheel` job builds the wheel on pushes to `main` and on release
 manually from the Actions tab), and the `test_wheel` job then runs the test suite against it on a plain Ubuntu
 runner that only has the runtime dependencies listed above installed.
 
+### Making a release
 
-## Related projects
+The project version is set in a single place: the `[workspace.package]` section of the root `Cargo.toml`. Both
+rust crates inherit it and the Python package gets it from there too. To make a release:
+
+1. Bump `version` in the root `Cargo.toml` (e.g. `0.3.0`) and refresh the lockfiles with `cargo check` and `uv lock`
+2. Update `CHANGELOG.md`
+3. Commit, then push an annotated tag with the same version, prefixed with `v`:
+
+   ```shell
+   git tag -a v0.3.0 -m "Release v0.3.0"
+   git push origin v0.3.0
+   ```
+
+The tag triggers the release workflow, which runs CI, checks that the built wheel's version matches the tag and
+then creates a GitHub release with the wheel and sdist attached.
+
+After the release, put the version back into a development state by bumping it to the next expected version with a
+`-dev.0` suffix (e.g. `0.4.0-dev.0`), refreshing the lockfiles and committing. maturin converts this to the
+Python version `0.4.0.dev0`, so wheels built from `main` in the meantime are clearly marked as development builds.
+When making the next release, step 1 above then just drops the suffix (or picks a different version).
+
+
+## Comparison to other MapLibre Native related projects
 
 Several other Python packages integrate with MapLibre, at different layers. 
 
@@ -199,13 +237,15 @@ and Shiny integrations; it targets interactive client-side maps and does not pro
 py-maplibregl; lonboard renders with deck.gl over a MapLibre basemap). 
 
 For server-side rendering, [pymgl] provides in-process nanobind bindings to a C++ wrapper around
-MapLibre Native for rendering styles to PNG. It ships wheels for Linux (requiring Xvfb) and macOS arm64, and its API
+MapLibre Native for rendering styles to PNG. It ships wheels for Linux and macOS arm64, and its API
 is documented as subject to change. 
+
 [mlnative] uses the [maplibre_native] crate in a separate renderer binary, driven from Python as a long-lived 
-subprocess over stdin/stdout; this isolates the renderer from the Python process at the cost of serializing each 
-request and response across the process boundary, and wheels are Linux-only.
+subprocess over stdin/stdout. This aproach isolates the renderer from the Python process (at the cost of 
+serializing each request and response across the process boundary).
+
 [maplibre-native-ffi] is a MapLibre project that defines a C API over MapLibre Native, with bindings for several
-languages. Its Python bindings are a PyO3 extension over that C API, exposing a broad, low-level surface (the host
+languages. Its Python bindings are also a PyO3 extension over that C API, exposing a broad, low-level surface (the host
 manages the graphics context), and the project is pre-1.0 with an unstable ABI. 
 
 Out-of-process HTTP services such as [tileserver-gl] (Node.js, rasterizing with MapLibre

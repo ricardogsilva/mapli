@@ -1,7 +1,7 @@
 [package]
 name = "mapli"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 
 [lib]
 name = "_core"
@@ -18,3 +18,9 @@ mapli-core = { path = "mapli-core" }
 [workspace]
 members = [".", "mapli-core"]
 default-members = [".", "mapli-core"]
+
+# Single source of truth for the project version: both crates inherit it, and maturin uses it as
+# the Python package version too (pyproject.toml declares the version as dynamic).
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
