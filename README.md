@@ -73,10 +73,14 @@ rendered at `z=0`. Use `pixel_ratio=2` for high-DPI ("@2x") tiles.
 
 > [!IMPORTANT]
 >
-> For not only Linux is supported. Prebuilt wheels are available for x86_64 and need glibc 2.34 or newer (e.g. Ubuntu 22.04+,
-> Debian 12+, RHEL 9+). ARM64 should work when building from source, but no wheels are built for it yet.
+> For now only Linux is supported. 
+> Prebuilt wheels are available for x86_64 and need glibc 2.34 or newer (e.g. Ubuntu 22.04+,
+> Debian 12+, RHEL 9+). ARM64 should also work when building from source, but no wheels are 
+> built for it yet.
+>
 > macOS on Apple Silicon should also be possible via MapLibre Native's Metal 
 > backend but is not yet built or tested. 
+>
 > Windows is not supported and mapli will only be able to enable support for it if the 
 > [upstream maplibre-native-rs] project ever decides to implement it.
 
@@ -113,8 +117,14 @@ At runtime, mapli additionally needs:
   ```
 
   For long-running services, you can instead run `Xvfb` as its own service and set the `DISPLAY`
-  environment variable for the process using mapli. Desktop machines that already have a display
-  don't need this.
+  environment variable for the process using mapli to the display number Xvfb was started with:
+
+  ```shell
+  Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp &
+  DISPLAY=:99 python your_app.py
+  ```
+
+  Desktop machines that already have a display don't need this.
 
 If the EGL driver or the display is missing, creating a `RenderPool` raises `mapli.GraphicsUnavailableError` with details
 about which EGL step failed:
@@ -208,7 +218,8 @@ runner that only has the runtime dependencies listed above installed.
 The project version is set in a single place: the `[workspace.package]` section of the root `Cargo.toml`. Both
 rust crates inherit it and the Python package gets it from there too. To make a release:
 
-1. Bump `version` in the root `Cargo.toml` (e.g. `0.3.0`) and refresh the lockfiles with `cargo check` and `uv lock`
+1. Bump `version` in the root `Cargo.toml` (e.g. `0.3.0`) and refresh the lockfiles with `cargo update --workspace` 
+   and `uv lock`
 2. Update `CHANGELOG.md`
 3. Commit, then push an annotated tag with the same version, prefixed with `v`:
 
@@ -221,7 +232,16 @@ The tag triggers the release workflow, which runs CI, checks that the built whee
 then creates a GitHub release with the wheel and sdist attached.
 
 After the release, put the version back into a development state by bumping it to the next expected version with a
-`-dev.0` suffix (e.g. `0.4.0-dev.0`), refreshing the lockfiles and committing. maturin converts this to the
+`-dev.0` suffix (e.g. `0.4.0-dev.0`) in the root `Cargo.toml`, refreshing the lockfiles and committing:
+
+```shell
+# after editing the version in Cargo.toml
+cargo update --workspace
+uv lock
+git commit -am "Bump version to 0.4.0-dev.0"
+```
+
+maturin converts this to the
 Python version `0.4.0.dev0`, so wheels built from `main` in the meantime are clearly marked as development builds.
 When making the next release, step 1 above then just drops the suffix (or picks a different version).
 
